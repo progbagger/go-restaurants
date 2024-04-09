@@ -5,10 +5,14 @@ type Pair[T1 any, T2 any] struct {
 	Second T2
 }
 
-type Entry struct {
-	Name      string
-	Address   string
-	Phone     string
-	Longitude float64
-	Latitude  float64
+type RestaurantRecord struct {
+	Name     string   `json:"name"`
+	Address  string   `json:"address"`
+	Phone    string   `json:"phone"`
+	Location Location `json:"location"`
+}
+
+type Location struct {
+	Latitude  float64 `json:"lat"`
+	Longitude float64 `json:"lon"`
 }
