@@ -14,7 +14,7 @@ fi
 docker network create elastic 2>/dev/zero || true
 
 output="$(docker run \
-  --name "$elastic_name"@ \
+  --name "$elastic_name" \
   --net elastic \
   -d \
   -p 9200:9200 \
