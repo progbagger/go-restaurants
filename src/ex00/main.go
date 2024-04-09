@@ -147,6 +147,7 @@ func main() {
 		readedRecords++
 
 		// asynchronously add records to the index
+		// TODO: waitGroup!!!
 		go func() {
 			errorMessage := "Couldn't insert record"
 
