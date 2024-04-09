@@ -11,7 +11,7 @@ if [[ -n $2 ]]; then
   elastic_password="$2"
 fi
 
-docker network create elastic 2>/dev/zero || true
+docker network create elastic 2>/dev/zero 1>&2 || true
 
 output="$(docker run \
   --name "$elastic_name" \
