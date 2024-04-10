@@ -69,7 +69,7 @@ func recreateIndex(client *elasticsearch.Client, index, mapping string) (*esapi.
 	return nil, nil
 }
 
-func insertDocument(indexer *esutil.BulkIndexer, record common.RestaurantRecord) error {
+func insertRecord(indexer *esutil.BulkIndexer, record common.RestaurantRecord) error {
 	marshalizedRecord, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -86,46 +86,8 @@ func insertDocument(indexer *esutil.BulkIndexer, record common.RestaurantRecord)
 	return err
 }
 
-func main() {
-	log.SetFlags(log.Lshortfile)
-
-	// creating CSV reader
-	restaurantsFile, err := os.Open("../../materials/data.csv")
-	if err != nil {
-		log.Fatalln()
-	}
-	defer restaurantsFile.Close()
-
-	csvReader := csv.NewReader(restaurantsFile)
-	csvReader.Comma = '\t'
-	csvReader.FieldsPerRecord = -1
-	csvReader.TrimLeadingSpace = true
-
-	client, err := client.CreateClient()
-	if err != nil {
-		log.Fatalln(err)
-	}
-	log.Println("Created elasticsearch client")
-
-	response, err := recreateIndex(client, "places", mapping)
-	if err != nil {
-		log.Fatalf("Can't create index \"places\": %s", err)
-	} else if response != nil && response.IsError() {
-		log.Fatalf("Can't create index \"places\": %s", response)
-	}
-
-	// creating indexer
-	bulkIndexer, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
-		Index:  "places",
-		Client: client,
-	})
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	// reading CSV and indexing
-	var succesfullyInsertedRecords uint64 = 0
-	var readedRecords uint64 = 0
+func readAndInsertRecords(indexer *esutil.BulkIndexer, csvReader *csv.Reader) (readedRecords uint64, succesfullyInsertedRecords uint64) {
+	succesfullyInsertedRecords, readedRecords = 0, 0
 
 	isHeaderReaded := false
 	waitGroup := sync.WaitGroup{}
@@ -165,7 +127,7 @@ func main() {
 				return
 			}
 
-			err = insertDocument(&bulkIndexer, common.RestaurantRecord{
+			err = insertRecord(indexer, common.RestaurantRecord{
 				Name:    record[1],
 				Address: record[2],
 				Phone:   record[3],
@@ -183,6 +145,48 @@ func main() {
 	}
 
 	waitGroup.Wait()
+
+	return readedRecords, succesfullyInsertedRecords
+}
+
+func main() {
+	log.SetFlags(log.Lshortfile)
+
+	// creating CSV reader
+	restaurantsFile, err := os.Open("../../materials/data.csv")
+	if err != nil {
+		log.Fatalln()
+	}
+	defer restaurantsFile.Close()
+
+	csvReader := csv.NewReader(restaurantsFile)
+	csvReader.Comma = '\t'
+	csvReader.FieldsPerRecord = -1
+	csvReader.TrimLeadingSpace = true
+
+	client, err := client.CreateClient()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	log.Println("Created elasticsearch client")
+
+	response, err := recreateIndex(client, "places", mapping)
+	if err != nil {
+		log.Fatalf("Can't create index \"places\": %s", err)
+	} else if response != nil && response.IsError() {
+		log.Fatalf("Can't create index \"places\": %s", response)
+	}
+
+	// creating indexer
+	bulkIndexer, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
+		Index:  "places",
+		Client: client,
+	})
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	readedRecords, succesfullyInsertedRecords := readAndInsertRecords(&bulkIndexer, csvReader)
 
 	if err := bulkIndexer.Close(context.Background()); err != nil {
 		log.Fatalln(err)
