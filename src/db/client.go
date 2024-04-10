@@ -1,9 +1,7 @@
 package db
 
 import (
-	"args"
 	"common"
-	"log"
 	"os"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -29,17 +27,6 @@ const (
 	defaultElasticPassword string = "elastic"
 	defaultElasticUrl      string = "https://localhost:9200"
 )
-
-func getDefaultArgs() []args.Arg {
-	return []args.Arg{
-		{
-			Name:         "cacert",
-			Description:  "path to the HTTPS certificate",
-			DefaultValue: "",
-			Required:     true,
-		},
-	}
-}
 
 func getCredentials() map[string]string {
 	env := parseEnv(elasticPassword, elasticUrl, elasticUser)
@@ -68,26 +55,12 @@ func getCredentials() map[string]string {
 	return result
 }
 
-func CreateClient() (*elasticsearch.Client, error) {
-	log.SetFlags(log.Lshortfile)
-
-	// acquiring path to the cacert
-	parsedArgs, _, err := args.ParseArgs(getDefaultArgs()...)
-	if err != nil {
-		return nil, err
-	}
-	caCertFile := parsedArgs["cacert"].(string)
-
+func CreateClient(CACert []byte) (*elasticsearch.Client, error) {
 	credentials := getCredentials()
-	caCert, err := os.ReadFile(caCertFile)
-	if err != nil {
-		return nil, err
-	}
-
 	return elasticsearch.NewClient(elasticsearch.Config{
 		Password:  credentials[elasticPassword],
 		Username:  credentials[elasticUser],
 		Addresses: []string{credentials[elasticUrl]},
-		CACert:    caCert,
+		CACert:    CACert,
 	})
 }

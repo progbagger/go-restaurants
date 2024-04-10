@@ -1,6 +1,7 @@
 package main
 
 import (
+	"args"
 	"bytes"
 	"common"
 	"context"
@@ -156,11 +157,40 @@ func readAndInsertRecords(indexer *esutil.BulkIndexer, csvReader *csv.Reader) (r
 	return readedRecords, succesfullyInsertedRecords
 }
 
+func getDefaultFlags() []args.Arg {
+	return []args.Arg{
+		{
+			Name:         "cacert",
+			Description:  "Path to http_ca.crt file",
+			DefaultValue: "",
+			Required:     true,
+		},
+		{
+			Name:         "data",
+			Description:  "Path to data CSV file",
+			DefaultValue: "",
+			Required:     true,
+		},
+	}
+}
+
 func main() {
 	log.SetFlags(log.Lshortfile)
 
+	// acquiring command-line arguments data
+	parsedArgs, _, err := args.ParseArgs(getDefaultFlags()...)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// reading certificate
+	CACert, err := os.ReadFile(parsedArgs["cacert"].(string))
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	// creating CSV reader
-	restaurantsFile, err := os.Open("../../materials/data.csv")
+	restaurantsFile, err := os.Open(parsedArgs["data"].(string))
 	if err != nil {
 		log.Fatalln()
 	}
@@ -171,7 +201,7 @@ func main() {
 	csvReader.FieldsPerRecord = -1
 	csvReader.TrimLeadingSpace = true
 
-	client, err := db.CreateClient()
+	client, err := db.CreateClient(CACert)
 	if err != nil {
 		log.Fatalln(err)
 	}
