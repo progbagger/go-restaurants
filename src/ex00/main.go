@@ -69,7 +69,7 @@ func recreateIndex(client *elasticsearch.Client, index, mapping string) (*esapi.
 	return nil, nil
 }
 
-func insertRecord(indexer *esutil.BulkIndexer, record common.RestaurantRecord) error {
+func insertRecord(indexer *esutil.BulkIndexer, record common.RestaurantRecord, id uint64) error {
 	marshalizedRecord, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -78,8 +78,9 @@ func insertRecord(indexer *esutil.BulkIndexer, record common.RestaurantRecord) e
 	err = (*indexer).Add(
 		context.Background(),
 		esutil.BulkIndexerItem{
-			Action: "index",
-			Body:   bytes.NewReader(marshalizedRecord),
+			Action:     "index",
+			DocumentID: fmt.Sprint(id),
+			Body:       bytes.NewReader(marshalizedRecord),
 		},
 	)
 
@@ -110,7 +111,7 @@ func readAndInsertRecords(indexer *esutil.BulkIndexer, csvReader *csv.Reader) (r
 		waitGroup.Add(1)
 
 		// asynchronously add records to the index
-		go func() {
+		go func(currentId uint64) {
 			defer waitGroup.Done()
 
 			errorMessage := "Couldn't insert record"
@@ -127,21 +128,27 @@ func readAndInsertRecords(indexer *esutil.BulkIndexer, csvReader *csv.Reader) (r
 				return
 			}
 
-			err = insertRecord(indexer, common.RestaurantRecord{
-				Name:    record[1],
-				Address: record[2],
-				Phone:   record[3],
-				Location: common.Location{
-					Longitude: lon,
-					Latitude:  lat,
+			err = insertRecord(
+				indexer,
+
+				common.RestaurantRecord{
+					Name:    record[1],
+					Address: record[2],
+					Phone:   record[3],
+					Location: common.Location{
+						Longitude: lon,
+						Latitude:  lat,
+					},
 				},
-			})
+
+				currentId,
+			)
 			if err != nil {
 				log.Printf("%s: %s\n", errorMessage, err)
 				return
 			}
 			atomic.AddUint64(&succesfullyInsertedRecords, 1)
-		}()
+		}(readedRecords)
 	}
 
 	waitGroup.Wait()
