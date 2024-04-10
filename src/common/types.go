@@ -5,7 +5,7 @@ type Pair[T1 any, T2 any] struct {
 	Second T2
 }
 
-type RestaurantRecord struct {
+type Place struct {
 	Name     string   `json:"name"`
 	Address  string   `json:"address"`
 	Phone    string   `json:"phone"`

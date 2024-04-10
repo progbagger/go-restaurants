@@ -69,7 +69,7 @@ func recreateIndex(client *elasticsearch.Client, index, mapping string) (*esapi.
 	return nil, nil
 }
 
-func insertRecord(indexer *esutil.BulkIndexer, record common.RestaurantRecord, id uint64) error {
+func insertRecord(indexer *esutil.BulkIndexer, record common.Place, id uint64) error {
 	marshalizedRecord, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -131,7 +131,7 @@ func readAndInsertRecords(indexer *esutil.BulkIndexer, csvReader *csv.Reader) (r
 			err = insertRecord(
 				indexer,
 
-				common.RestaurantRecord{
+				common.Place{
 					Name:    record[1],
 					Address: record[2],
 					Phone:   record[3],
