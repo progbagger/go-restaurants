@@ -2,9 +2,9 @@ package main
 
 import (
 	"bytes"
-	"client"
 	"common"
 	"context"
+	"db"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -171,7 +171,7 @@ func main() {
 	csvReader.FieldsPerRecord = -1
 	csvReader.TrimLeadingSpace = true
 
-	client, err := client.CreateClient()
+	client, err := db.CreateClient()
 	if err != nil {
 		log.Fatalln(err)
 	}
