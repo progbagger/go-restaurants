@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -42,13 +43,15 @@ const mapping = `
 
 func recreateIndex(client *elasticsearch.Client, index, mapping string) (*esapi.Response, error) {
 	response, err := client.Indices.Delete([]string{index}, client.Indices.Delete.WithIgnoreUnavailable(true))
-	if err != nil || response.IsError() {
-		log.Printf("Can't delete index \"%s\". Skipping...\n", index)
-	} else if response.IsError() {
-		log.Printf("Deleted previously created index \"%s\"", index)
-	} else {
-		response.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("can't delete index \"%s\", skipping", index)
 	}
+	if response.IsError() {
+		return response, nil
+	}
+
+	log.Printf("Deleted previously created index \"%s\"", index)
+	response.Body.Close()
 
 	response, err = client.Indices.Create(
 		index,
@@ -77,10 +80,6 @@ func insertDocument(indexer *esutil.BulkIndexer, record common.RestaurantRecord)
 		esutil.BulkIndexerItem{
 			Action: "index",
 			Body:   bytes.NewReader(marshalizedRecord),
-
-			OnSuccess: func(ctx context.Context, bii esutil.BulkIndexerItem, biri esutil.BulkIndexerResponseItem) {
-				log.Println("Succesfully inserted record", record)
-			},
 		},
 	)
 
@@ -129,6 +128,7 @@ func main() {
 	var readedRecords uint64 = 0
 
 	isHeaderReaded := false
+	waitGroup := sync.WaitGroup{}
 	for {
 		record, err := csvReader.Read()
 		if err == io.EOF {
@@ -145,10 +145,12 @@ func main() {
 		}
 
 		readedRecords++
+		waitGroup.Add(1)
 
 		// asynchronously add records to the index
-		// TODO: waitGroup!!!
 		go func() {
+			defer waitGroup.Done()
+
 			errorMessage := "Couldn't insert record"
 
 			lon, err := strconv.ParseFloat(record[4], 64)
@@ -174,11 +176,13 @@ func main() {
 			})
 			if err != nil {
 				log.Printf("%s: %s\n", errorMessage, err)
-				atomic.AddUint64(&succesfullyInsertedRecords, 1)
 				return
 			}
+			atomic.AddUint64(&succesfullyInsertedRecords, 1)
 		}()
 	}
+
+	waitGroup.Wait()
 
 	if err := bulkIndexer.Close(context.Background()); err != nil {
 		log.Fatalln(err)
