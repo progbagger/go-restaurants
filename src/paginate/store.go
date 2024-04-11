@@ -1,4 +1,4 @@
-package main
+package paginate
 
 import (
 	"common"

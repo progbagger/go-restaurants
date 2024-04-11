@@ -1,6 +1,6 @@
-module ex00
+module paginate
 
-go 1.21.1
+go 1.22.1
 
 require github.com/elastic/go-elasticsearch/v8 v8.13.1
 

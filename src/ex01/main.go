@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"paginate"
 	"strconv"
 	"strings"
 )
@@ -88,14 +89,18 @@ func buildPage(total, pageSize, page int, places []common.Place) string {
 	return fmt.Sprintf(body, total, page, entries, stringButtons)
 }
 
-func (paginator *ElasticPaginator) showPage(w http.ResponseWriter, r *http.Request) {
+type Paginator struct {
+	ElasticPaginator paginate.ElasticPaginator
+}
+
+func (paginator *Paginator) showPage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusForbidden)
 		log.Println("not a get method")
 		return
 	}
 
-	places, totalDocumentsCount, err := paginator.GetPlaces(math.MaxInt32, 0)
+	places, totalDocumentsCount, err := paginator.ElasticPaginator.GetPlaces(math.MaxInt32, 0)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		log.Println(err)
@@ -151,7 +156,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	paginator := ElasticPaginator{Client: client, Index: "places"}
+	paginator := Paginator{paginate.ElasticPaginator{Client: client, Index: "places"}}
 
 	// server itself
 	http.HandleFunc("/", paginator.showPage)
