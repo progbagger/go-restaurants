@@ -104,7 +104,6 @@ func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Pl
 		return places, 0, nil
 	}
 
-	totalHits := 0
 	var searchAfter []any = nil
 
 	for i := 0; i < limit; i += 10_000 {
@@ -145,7 +144,6 @@ func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Pl
 			break
 		}
 
-		totalHits += result.Hits.Total.Value
 		searchAfter = result.Hits.Hits[len(result.Hits.Hits)-1].Sort
 
 		for _, place := range result.Hits.Hits {
@@ -154,12 +152,14 @@ func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Pl
 	}
 
 	if offset >= len(places) {
-		return make([]common.Place, 0), totalHits, nil
+		return make([]common.Place, 0), 0, nil
 	}
 
 	if len(places) < offset+limit {
-		return places[offset:], totalHits, nil
+		places = places[offset:]
+		return places, len(places), nil
 	}
 
-	return places[offset : offset+limit], totalHits, nil
+	places = places[offset : offset+limit]
+	return places, len(places), nil
 }
