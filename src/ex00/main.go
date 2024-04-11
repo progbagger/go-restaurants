@@ -133,6 +133,7 @@ func readAndInsertRecords(indexer *esutil.BulkIndexer, csvReader *csv.Reader) (r
 				indexer,
 
 				common.Place{
+					ID:      currentId,
 					Name:    record[1],
 					Address: record[2],
 					Phone:   record[3],

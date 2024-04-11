@@ -6,6 +6,7 @@ type Pair[T1 any, T2 any] struct {
 }
 
 type Place struct {
+	ID       uint64   `json:"id"`
 	Name     string   `json:"name"`
 	Address  string   `json:"address"`
 	Phone    string   `json:"phone"`
