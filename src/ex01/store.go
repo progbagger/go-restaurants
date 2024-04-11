@@ -36,7 +36,15 @@ type ElasticPaginatorResponseResult struct {
 }
 
 func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Place, int, error) {
+	if offset < 0 || limit < 0 {
+		return nil, 0, fmt.Errorf("negative values in GetPlaces is not accepted")
+	}
+
 	places := make([]common.Place, 0, limit)
+	if limit == 0 {
+		return places, 0, nil
+	}
+
 	totalHits := 0
 
 	for i := 0; i <= limit; i += 10_000 {
