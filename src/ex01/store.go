@@ -99,7 +99,7 @@ func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Pl
 	if offset < 0 {
 		return nil, 0, fmt.Errorf("offset can not be less than 0")
 	}
-	places := make([]common.Place, 0, limit)
+	places := make([]common.Place, 0)
 	if limit == 0 {
 		return places, 0, nil
 	}
@@ -140,7 +140,7 @@ func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Pl
 		}
 
 		// no more data to fetch
-		if result.Hits.Hits == nil {
+		if result.Hits.Hits == nil || len(result.Hits.Hits) == 0 {
 			break
 		}
 

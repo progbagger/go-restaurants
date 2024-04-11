@@ -25,6 +25,7 @@ const body = `
 
 <body>
 <h5>Total: %d</h5>
+<h5>Current: %d</h5>
 <ul>
 %s
 </ul>
@@ -32,14 +33,72 @@ const body = `
 </body>
 </html>`
 
-func (paginator *ElasticPaginator) buildPage(total int, places []common.Place) (string, error) {
-	// ...
+func createButton(page int, name string) string {
+	return fmt.Sprintf(`<a href="/?page=%d">%s</a>`, page, name)
+}
+
+func createPlaceEntry(place common.Place) string {
+	return fmt.Sprintf(
+		`
+		<li>
+			<div>%s</div>
+			<div>%s</div>
+			<div>%s</div>
+		</li>`,
+		place.Name,
+		place.Address,
+		place.Phone,
+	)
+}
+
+func buildPage(total, pageSize, page int, places []common.Place) string {
+	var stringPages []string
+	if len(places) < pageSize {
+		stringPages = make([]string, len(places))
+	} else {
+		stringPages = make([]string, pageSize)
+	}
+
+	for i, place := range places {
+		stringPages[i] = createPlaceEntry(place)
+	}
+
+	entries := strings.Join(stringPages, "\n")
+
+	var firstButton, prevButton, nextButton, lastButton string
+	if page != 1 && total != 1 {
+		firstButton = createButton(1, "First")
+		prevButton = createButton(page-1, "Previous")
+	}
+	if page != total {
+		nextButton = createButton(page+1, "Next")
+		lastButton = createButton(total, "Last")
+	}
+
+	stringButtons := strings.Join(
+		[]string{
+			firstButton,
+			prevButton,
+			nextButton,
+			lastButton,
+		},
+		"\n",
+	)
+
+	return fmt.Sprintf(body, total, page, entries, stringButtons)
 }
 
 func (paginator *ElasticPaginator) showPage(w http.ResponseWriter, r *http.Request) {
-	_, total, err := paginator.GetPlaces(math.MaxInt32, 0)
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusForbidden)
+		log.Println("not a get method")
+		return
+	}
+
+	places, totalDocumentsCount, err := paginator.GetPlaces(math.MaxInt32, 0)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+		log.Println(err)
 		return
 	}
 
@@ -48,10 +107,23 @@ func (paginator *ElasticPaginator) showPage(w http.ResponseWriter, r *http.Reque
 	requestedPage, err := strconv.ParseInt(r.URL.Query().Get("page"), 10, 32)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		log.Println(err)
 		return
 	}
 
-	b := strings.Builder{}
+	totalPagesCount := totalDocumentsCount / pageSize
+	if requestedPage <= 0 || requestedPage > int64(totalPagesCount) {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Println("requested page is invalid")
+		return
+	}
+
+	fmt.Fprintln(w, buildPage(
+		totalPagesCount,
+		pageSize,
+		int(requestedPage),
+		places[(requestedPage-1)*pageSize:requestedPage*pageSize],
+	))
 }
 
 func main() {
@@ -79,25 +151,12 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	paginator := ElasticPaginator{Client: client, Index: "places"}
+
 	// server itself
+	http.HandleFunc("/", paginator.showPage)
 	err = http.ListenAndServe(":8888", nil)
 	if err != nil {
 		log.Fatalln(err)
-	}
-
-	var limit, offset int
-	fmt.Scan(&limit, &offset)
-
-	paginator := ElasticPaginator{Client: client, Index: "places"}
-	places, hits, err := paginator.GetPlaces(limit, offset)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	fmt.Printf("hits: %d\n", hits)
-	fmt.Printf("len: %d\n", len(places))
-
-	for _, place := range places {
-		fmt.Println(place)
 	}
 }
