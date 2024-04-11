@@ -2,12 +2,11 @@ package main
 
 import (
 	"common"
-	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/esapi"
 )
 
 type Store interface {
@@ -31,36 +30,102 @@ type ElasticPaginatorResponseResult struct {
 			ID     string       `json:"_id"`
 			Score  float64      `json:"_score"`
 			Source common.Place `json:"_source"`
+			Sort   []any        `json:"sort"`
 		} `json:"hits"`
 	} `json:"hits"`
 }
 
-func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Place, int, error) {
-	if offset < 0 || limit < 0 {
-		return nil, 0, fmt.Errorf("negative values in GetPlaces is not accepted")
+const query = `
+{
+	"size": %d,
+	"sort": [
+		%s
+	]%s
+}`
+
+type SortParameter struct {
+	Field      string
+	Descending bool
+}
+
+func buildQuery(limit int, searchAfter []any, params []SortParameter) (string, error) {
+	if limit < 0 {
+		return "", fmt.Errorf("negative limit is not allowed")
 	}
 
+	if len(params) == 0 {
+		return "", fmt.Errorf("empty sort parameters are not allowed")
+	}
+
+	sorts := make([]string, len(params))
+	for i, param := range params {
+		var sort string
+		if param.Descending {
+			sort = "desc"
+		} else {
+			sort = "asc"
+		}
+
+		sorts[i] = fmt.Sprintf("{%q: %q}", param.Field, sort)
+	}
+
+	if len(searchAfter) > 0 {
+		searchAfterStringValues := make([]string, len(searchAfter))
+		for i, v := range searchAfter {
+			switch v.(type) {
+			case string:
+				searchAfterStringValues[i] = fmt.Sprintf("%q", v)
+			default:
+				searchAfterStringValues[i] = fmt.Sprintf("%v", v)
+			}
+		}
+
+		return fmt.Sprintf(
+			query,
+			limit,
+			strings.Join(sorts, ","),
+			fmt.Sprintf(`
+			,
+			"search_after": [
+				%s
+			]`,
+				strings.Join(searchAfterStringValues, ", ")),
+		), nil
+	}
+	return fmt.Sprintf(query, limit, strings.Join(sorts, ","), ""), nil
+}
+
+func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Place, int, error) {
+	if offset < 0 {
+		return nil, 0, fmt.Errorf("offset can not be less than 0")
+	}
 	places := make([]common.Place, 0, limit)
 	if limit == 0 {
 		return places, 0, nil
 	}
 
 	totalHits := 0
+	var searchAfter []any = nil
 
-	for i := 0; i <= limit; i += 10_000 {
-		currentLimit := 10_000
-		if limit-i < 10_000 {
-			currentLimit = limit - i
+	for i := 0; i < limit; i += 10_000 {
+		query, err := buildQuery(
+			10_000,
+			searchAfter,
+			[]SortParameter{
+				{Field: "id", Descending: false},
+				{Field: "_score", Descending: true},
+			},
+		)
+		if err != nil {
+			return nil, 0, err
 		}
 
-		request := esapi.SearchRequest{
-			Index: []string{paginator.Index},
-			From:  &i,
-			Size:  &currentLimit,
-			Sort:  []string{},
-		}
-
-		response, err := request.Do(context.Background(), paginator.Client)
+		response, err := paginator.Client.Search(
+			paginator.Client.Search.WithIndex(paginator.Index),
+			paginator.Client.Search.WithBody(
+				strings.NewReader(query),
+			),
+		)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -75,12 +140,26 @@ func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Pl
 			return nil, 0, err
 		}
 
+		// no more data to fetch
+		if result.Hits.Hits == nil {
+			break
+		}
+
 		totalHits += result.Hits.Total.Value
+		searchAfter = result.Hits.Hits[len(result.Hits.Hits)-1].Sort
 
 		for _, place := range result.Hits.Hits {
 			places = append(places, place.Source)
 		}
 	}
 
-	return places, totalHits, nil
+	if offset >= len(places) {
+		return make([]common.Place, 0), totalHits, nil
+	}
+
+	if len(places) < offset+limit {
+		return places[offset:], totalHits, nil
+	}
+
+	return places[offset : offset+limit], totalHits, nil
 }
