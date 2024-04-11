@@ -33,8 +33,11 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	var limit, offset int
+	fmt.Scan(&limit, &offset)
+
 	paginator := ElasticPaginator{Client: client, Index: "places"}
-	places, hits, err := paginator.GetPlaces(15_000, 13_640)
+	places, hits, err := paginator.GetPlaces(limit, offset)
 	if err != nil {
 		log.Fatalln(err)
 	}
