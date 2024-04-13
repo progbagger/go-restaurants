@@ -1,4 +1,4 @@
-module ex00
+module inserter
 
 go 1.21.1
 

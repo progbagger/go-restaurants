@@ -13,6 +13,8 @@ import (
 	"paginate"
 	"strconv"
 	"strings"
+
+	"github.com/golang-jwt/jwt"
 )
 
 const body = `
@@ -265,25 +267,39 @@ func constructGeoSortRequest(lon, lat float64, size int) sortSizeRequest {
 }
 
 func (paginator *Paginator) recommendApi(w http.ResponseWriter, r *http.Request) {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+
+	w.Header().Add("Content-Type", "application/json")
+
 	if r.Method != http.MethodGet {
-		http.Error(w, "not a get request", http.StatusMethodNotAllowed)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		encoder.Encode(invalidPageJson{"not a GET method"})
 		log.Println("not a get request")
+		return
+	}
+
+	var token string
+	fmt.Sscanf(r.Header.Get("Authorization"), "Bearer %s", &token)
+
+	if err := isTokenVerified(token); err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		encoder.Encode(invalidPageJson{"unathorized"})
+		log.Println(err)
 		return
 	}
 
 	lat, err := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 	if err != nil {
-		marshalized, _ := json.MarshalIndent(invalidPageJson{fmt.Sprintf(`invalid "lat" value: %v`, lat)}, "", "  ")
-		w.Header().Add("Content-Type", "application/json")
-		http.Error(w, string(marshalized), http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		encoder.Encode(invalidPageJson{fmt.Sprintf(`invalid "lat" value: %v`, lat)})
 		return
 	}
 
 	lon, err := strconv.ParseFloat(r.URL.Query().Get("lon"), 64)
 	if err != nil {
-		marshalized, _ := json.MarshalIndent(invalidPageJson{fmt.Sprintf(`invalid "lon" value: %v`, lon)}, "", "  ")
-		w.Header().Add("Content-Type", "application/json")
-		http.Error(w, string(marshalized), http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		encoder.Encode(invalidPageJson{fmt.Sprintf(`invalid "lon" value: %v`, lon)})
 		return
 	}
 
@@ -293,17 +309,20 @@ func (paginator *Paginator) recommendApi(w http.ResponseWriter, r *http.Request)
 		paginator.ElasticPaginator.Client.Search.WithBody(strings.NewReader(string(marshalizedSort))),
 	)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		encoder.Encode(invalidPageJson{err.Error()})
 		return
 	}
 	if response.IsError() {
-		http.Error(w, response.String(), http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		encoder.Encode(invalidPageJson{response.String()})
 	}
 
 	var res paginate.ElasticSortResponse
 	err = json.NewDecoder(response.Body).Decode(&res)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		encoder.Encode(invalidPageJson{err.Error()})
 		return
 	}
 
@@ -315,14 +334,89 @@ func (paginator *Paginator) recommendApi(w http.ResponseWriter, r *http.Request)
 		recommendResponse.Places[i] = hit.Source
 	}
 
-	marshalizedResponse, _ := json.MarshalIndent(recommendResponse, "", "  ")
+	encoder.Encode(recommendResponse)
+}
 
-	w.Header().Add("Content-Type", "application/json")
-	fmt.Fprint(w, string(marshalizedResponse))
+func createToken(secret []byte) (string, error) {
+	token := jwt.New(jwt.SigningMethodHS256)
+
+	stringToken, err := token.SignedString(secret)
+	if err != nil {
+		return "", err
+	}
+
+	return stringToken, nil
+}
+
+func isTokenVerified(token string) error {
+	t, err := jwt.Parse(
+		token,
+		func(token *jwt.Token) (any, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("error while formatting")
+			}
+
+			return []byte("SomeSuperSecretKey"), nil
+		},
+	)
+
+	if err != nil {
+		return err
+	}
+
+	if t.Valid {
+		return nil
+	}
+
+	return fmt.Errorf("unathorized")
 }
 
 func getToken(w http.ResponseWriter, r *http.Request) {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
 
+	w.Header().Add("Content-Type", "application/json")
+
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		encoder.Encode(invalidPageJson{"not a GET method"})
+		log.Println("not a get method")
+		return
+	}
+
+	type response struct {
+		Token string `json:"token"`
+	}
+
+	token, err := createToken([]byte("SomeSuperSecretKey"))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		encoder.Encode(invalidPageJson{"error while creating token"})
+		log.Println(err)
+		return
+	}
+
+	encoder.Encode(response{Token: token})
+
+	// token, err := jwt.Parse(
+	// 	r.Header.Get("Token"),
+	// 	func(token *jwt.Token) (any, error) {
+	// 		if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
+	// 			http.Error(w, "", http.StatusUnauthorized)
+	// 			err := encoder.Encode(`{"error": "unathorized"}`)
+	// 			if err != nil {
+	// 				return nil, err
+	// 			}
+	// 		}
+
+	// 		return "", nil
+	// 	},
+	// )
+	// if err != nil {
+	// 	http.Error(w, "", http.StatusUnauthorized)
+	// 	encoder.Encode(`{"error": "unathorized due to parsin error}`)
+	// 	return
+	// }
 }
 
 func main() {
@@ -356,6 +450,7 @@ func main() {
 	http.HandleFunc("/", paginator.showPage)
 	http.HandleFunc("/api/places", paginator.returnJSON)
 	http.HandleFunc("/api/recommend", paginator.recommendApi)
+	http.HandleFunc("/api/get_token", getToken)
 
 	// server itself
 	err = http.ListenAndServe(":8888", nil)
