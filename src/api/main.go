@@ -176,6 +176,7 @@ func (paginator *Paginator) returnJSON(w http.ResponseWriter, r *http.Request) {
 			"",
 			"  ",
 		)
+		w.Header().Add("Content-Type", "application/json")
 		http.Error(w, string(marshalized), http.StatusBadRequest)
 		log.Println("requested page is invalid")
 		return
@@ -192,6 +193,7 @@ func (paginator *Paginator) returnJSON(w http.ResponseWriter, r *http.Request) {
 			"",
 			"  ",
 		)
+		w.Header().Add("Content-Type", "application/json")
 		http.Error(w, string(marshalized), http.StatusBadRequest)
 		log.Println("requested page is invalid")
 		return
@@ -218,6 +220,8 @@ func (paginator *Paginator) returnJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	marshalized, _ := json.MarshalIndent(response, "", "  ")
+
+	w.Header().Add("Content-Type", "application/json")
 	fmt.Fprint(w, string(marshalized))
 }
 
@@ -270,6 +274,7 @@ func (paginator *Paginator) recommendApi(w http.ResponseWriter, r *http.Request)
 	lat, err := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 	if err != nil {
 		marshalized, _ := json.MarshalIndent(invalidPageJson{fmt.Sprintf(`invalid "lat" value: %v`, lat)}, "", "  ")
+		w.Header().Add("Content-Type", "application/json")
 		http.Error(w, string(marshalized), http.StatusBadRequest)
 		return
 	}
@@ -277,12 +282,12 @@ func (paginator *Paginator) recommendApi(w http.ResponseWriter, r *http.Request)
 	lon, err := strconv.ParseFloat(r.URL.Query().Get("lon"), 64)
 	if err != nil {
 		marshalized, _ := json.MarshalIndent(invalidPageJson{fmt.Sprintf(`invalid "lon" value: %v`, lon)}, "", "  ")
+		w.Header().Add("Content-Type", "application/json")
 		http.Error(w, string(marshalized), http.StatusBadRequest)
 		return
 	}
 
-	marshalizedSort, _ := json.MarshalIndent(constructGeoSortRequest(lon, lat, 3), "", "  ")
-	log.Println(string(marshalizedSort))
+	marshalizedSort, _ := json.Marshal(constructGeoSortRequest(lon, lat, 3))
 	response, err := paginator.ElasticPaginator.Client.Search(
 		paginator.ElasticPaginator.Client.Search.WithIndex(paginator.ElasticPaginator.Index),
 		paginator.ElasticPaginator.Client.Search.WithBody(strings.NewReader(string(marshalizedSort))),
@@ -311,7 +316,13 @@ func (paginator *Paginator) recommendApi(w http.ResponseWriter, r *http.Request)
 	}
 
 	marshalizedResponse, _ := json.MarshalIndent(recommendResponse, "", "  ")
+
+	w.Header().Add("Content-Type", "application/json")
 	fmt.Fprint(w, string(marshalizedResponse))
+}
+
+func getToken(w http.ResponseWriter, r *http.Request) {
+
 }
 
 func main() {
