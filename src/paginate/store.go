@@ -20,7 +20,7 @@ type ElasticPaginator struct {
 	Index  string
 }
 
-type ElasticPaginatorResponseResult struct {
+type ElasticSortResponse struct {
 	Hits struct {
 		Total struct {
 			Value int `json:"value"`
@@ -134,7 +134,7 @@ func (paginator *ElasticPaginator) GetPlaces(limit int, offset int) ([]common.Pl
 			return nil, 0, fmt.Errorf("%s", response)
 		}
 
-		var result ElasticPaginatorResponseResult
+		var result ElasticSortResponse
 		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 			return nil, 0, err
 		}

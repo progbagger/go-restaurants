@@ -118,17 +118,26 @@ func (paginator *Paginator) showPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalPagesCount := totalDocumentsCount / pageSize
+	if totalDocumentsCount%10 != 0 {
+		totalPagesCount++
+	}
+
 	if requestedPage <= 0 || requestedPage > int64(totalPagesCount) {
 		http.Error(w, "requested page is invalid", http.StatusBadRequest)
 		log.Println("requested page is invalid")
 		return
 	}
 
+	sliceEnd := requestedPage * pageSize
+	if len(places) < int(sliceEnd) {
+		sliceEnd = int64(len(places))
+	}
+
 	fmt.Fprintln(w, buildPage(
 		totalPagesCount,
 		pageSize,
 		int(requestedPage),
-		places[(requestedPage-1)*pageSize:requestedPage*pageSize],
+		places[(requestedPage-1)*pageSize:sliceEnd],
 	))
 }
 
@@ -140,10 +149,10 @@ type jsonResponse struct {
 	Name      string         `json:"name"`
 	Total     int            `json:"total"`
 	Places    []common.Place `json:"places"`
-	FirstPage *int           `json:"first_page"`
-	PrevPage  *int           `json:"prev_page"`
-	NextPage  *int           `json:"next_page"`
-	LastPage  *int           `json:"last_page"`
+	FirstPage *int           `json:"first_page,omitempty"`
+	PrevPage  *int           `json:"prev_page,omitempty"`
+	NextPage  *int           `json:"next_page,omitempty"`
+	LastPage  *int           `json:"last_page,omitempty"`
 }
 
 func (paginator *Paginator) returnJSON(w http.ResponseWriter, r *http.Request) {
@@ -173,6 +182,10 @@ func (paginator *Paginator) returnJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalPagesCount := totalDocumentsCount / pageSize
+	if totalDocumentsCount%10 != 0 {
+		totalPagesCount++
+	}
+
 	if requestedPage <= 0 || requestedPage > int64(totalPagesCount) {
 		marshalized, _ := json.MarshalIndent(
 			invalidPageJson{fmt.Sprintf("Invalid 'page' value: %v", requestedPage)},
@@ -184,7 +197,11 @@ func (paginator *Paginator) returnJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	places = places[(requestedPage-1)*pageSize : requestedPage*pageSize]
+	sliceEnd := requestedPage * pageSize
+	if len(places) < int(sliceEnd) {
+		sliceEnd = int64(len(places))
+	}
+	places = places[(requestedPage-1)*pageSize : sliceEnd]
 
 	response := jsonResponse{
 		Name:   "Places",
@@ -193,7 +210,7 @@ func (paginator *Paginator) returnJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	if requestedPage != 1 && totalPagesCount != 1 {
 		response.FirstPage, response.PrevPage = new(int), new(int)
-		*response.FirstPage, *response.PrevPage = 0, int(requestedPage)-1
+		*response.FirstPage, *response.PrevPage = 1, int(requestedPage)-1
 	}
 	if requestedPage != int64(totalPagesCount) {
 		response.NextPage, response.LastPage = new(int), new(int)
@@ -209,11 +226,6 @@ type recommendResponse struct {
 	Places []common.Place `json:"places"`
 }
 
-type sortRequest struct {
-	Size int   `json:"size"`
-	Sort []any `json:"sort"`
-}
-
 type geoSortEntry struct {
 	GeoDistance geoDistance `json:"_geo_distance"`
 }
@@ -227,23 +239,25 @@ type geoDistance struct {
 	IgnoreUnmapped bool            `json:"ignore_unmapped"`
 }
 
-func constructGeoSortRequest(lon, lat float64, size int) sortRequest {
-	return sortRequest{
+type sortSizeRequest struct {
+	Size int   `json:"size"`
+	Sort []any `json:"sort"`
+}
+
+func constructGeoSortRequest(lon, lat float64, size int) sortSizeRequest {
+	return sortSizeRequest{
 		Size: size,
-		Sort: []any{
-			geoSortEntry{GeoDistance: geoDistance{
-				Location: common.Location{
-					Latitude:  lat,
-					Longitude: lon,
-				},
-				Order:          "asc",
-				Unit:           "km",
-				Mode:           "min",
-				DistanceType:   "arc",
-				IgnoreUnmapped: true,
-			}},
-		},
-	}
+		Sort: []any{geoSortEntry{GeoDistance: geoDistance{
+			Location: common.Location{
+				Latitude:  lat,
+				Longitude: lon,
+			},
+			Order:          "asc",
+			Unit:           "km",
+			Mode:           "min",
+			DistanceType:   "arc",
+			IgnoreUnmapped: true,
+		}}}}
 }
 
 func (paginator *Paginator) recommendApi(w http.ResponseWriter, r *http.Request) {
@@ -255,15 +269,49 @@ func (paginator *Paginator) recommendApi(w http.ResponseWriter, r *http.Request)
 
 	lat, err := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 	if err != nil {
-		marshalized, _ := json.MarshalIndent()
-		http.Error(w, )
+		marshalized, _ := json.MarshalIndent(invalidPageJson{fmt.Sprintf(`invalid "lat" value: %v`, lat)}, "", "  ")
+		http.Error(w, string(marshalized), http.StatusBadRequest)
+		return
 	}
-	// response, err := paginator.ElasticPaginator.Client.Search(
-	// 	paginator.ElasticPaginator.Client.Search.WithIndex(paginator.ElasticPaginator.Index),
-	// 	paginator.ElasticPaginator.Client.Search.WithQuery(
 
-	// 	)
-	// )
+	lon, err := strconv.ParseFloat(r.URL.Query().Get("lon"), 64)
+	if err != nil {
+		marshalized, _ := json.MarshalIndent(invalidPageJson{fmt.Sprintf(`invalid "lon" value: %v`, lon)}, "", "  ")
+		http.Error(w, string(marshalized), http.StatusBadRequest)
+		return
+	}
+
+	marshalizedSort, _ := json.MarshalIndent(constructGeoSortRequest(lon, lat, 3), "", "  ")
+	log.Println(string(marshalizedSort))
+	response, err := paginator.ElasticPaginator.Client.Search(
+		paginator.ElasticPaginator.Client.Search.WithIndex(paginator.ElasticPaginator.Index),
+		paginator.ElasticPaginator.Client.Search.WithBody(strings.NewReader(string(marshalizedSort))),
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if response.IsError() {
+		http.Error(w, response.String(), http.StatusInternalServerError)
+	}
+
+	var res paginate.ElasticSortResponse
+	err = json.NewDecoder(response.Body).Decode(&res)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	recommendResponse := recommendResponse{
+		Name: "Recommend",
+	}
+	recommendResponse.Places = make([]common.Place, len(res.Hits.Hits))
+	for i, hit := range res.Hits.Hits {
+		recommendResponse.Places[i] = hit.Source
+	}
+
+	marshalizedResponse, _ := json.MarshalIndent(recommendResponse, "", "  ")
+	fmt.Fprint(w, string(marshalizedResponse))
 }
 
 func main() {
